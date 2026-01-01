@@ -413,6 +413,330 @@ app.post('/api/applications/:id/ai-match', async (c) => {
   }
 });
 
+// =====================================================
+// 신규 기능: 이력서 업로드 및 AI 분석
+// =====================================================
+
+// 이력서 직접 업로드 및 지원자 생성
+app.post('/api/applicants/upload-resume', async (c) => {
+  const { DB } = c.env;
+  
+  try {
+    // FormData에서 데이터 추출
+    const formData = await c.req.parseBody();
+    
+    // 이력서 텍스트 분석 (실제로는 파일 파싱하지만 여기서는 텍스트로 받음)
+    const resumeText = formData.resume_text as string || '';
+    const jobPostingId = formData.job_posting_id as string;
+    
+    // AI 기반 이력서 분석 (실제로는 OpenAI/Claude API 호출)
+    const analysis = analyzeResume(resumeText);
+    
+    // 지원자 정보 추출
+    const applicantData = {
+      name: formData.name as string,
+      email: formData.email as string,
+      phone: formData.phone as string,
+      birth_date: formData.birth_date as string || null,
+      gender: formData.gender as string || null,
+      education_level: analysis.education_level,
+      university: analysis.university,
+      major: analysis.major,
+      graduation_date: analysis.graduation_date,
+      total_experience_years: analysis.total_experience_years,
+      current_company: analysis.current_company,
+      current_position: analysis.current_position,
+      referral_source: '직접 업로드',
+      resume_url: formData.resume_url as string || null
+    };
+
+    // 지원자 생성 (중복 이메일 체크)
+    let applicantId;
+    const existingApplicant = await DB.prepare(
+      'SELECT id FROM applicants WHERE email = ?'
+    ).bind(applicantData.email).first();
+
+    if (existingApplicant) {
+      applicantId = existingApplicant.id;
+    } else {
+      const applicantResult = await DB.prepare(`
+        INSERT INTO applicants (
+          name, email, phone, birth_date, gender, education_level, university, major,
+          graduation_date, total_experience_years, current_company, current_position,
+          referral_source, resume_url
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        applicantData.name,
+        applicantData.email,
+        applicantData.phone,
+        applicantData.birth_date,
+        applicantData.gender,
+        applicantData.education_level,
+        applicantData.university,
+        applicantData.major,
+        applicantData.graduation_date,
+        applicantData.total_experience_years,
+        applicantData.current_company,
+        applicantData.current_position,
+        applicantData.referral_source,
+        applicantData.resume_url
+      ).run();
+      
+      applicantId = applicantResult.meta.last_row_id;
+    }
+
+    // 지원내역 생성
+    const coverLetter = formData.cover_letter as string || '';
+    const applicationResult = await DB.prepare(`
+      INSERT INTO applications (
+        job_posting_id, applicant_id, cover_letter, status, current_stage
+      ) VALUES (?, ?, ?, 'submitted', '서류전형')
+    `).bind(jobPostingId, applicantId, coverLetter).run();
+
+    const applicationId = applicationResult.meta.last_row_id;
+
+    // AI 매칭 점수 자동 계산
+    const jobPosting = await DB.prepare(
+      'SELECT * FROM job_postings WHERE id = ?'
+    ).bind(jobPostingId).first();
+
+    const matchScore = calculateMatchScore(analysis, jobPosting, resumeText, coverLetter);
+
+    // AI 매칭 점수 업데이트
+    await DB.prepare(`
+      UPDATE applications 
+      SET ai_match_score = ?, ai_match_reason = ?, updated_at = CURRENT_TIMESTAMP 
+      WHERE id = ?
+    `).bind(matchScore.score, matchScore.reason, applicationId).run();
+
+    // 프로세스 로그 기록
+    await DB.prepare(`
+      INSERT INTO process_logs (application_id, stage, action, performer, notes)
+      VALUES (?, ?, ?, ?, ?)
+    `).bind(applicationId, '서류전형', '지원서 접수', 'system', '이력서 직접 업로드').run();
+
+    // 이메일 로그 기록
+    await DB.prepare(`
+      INSERT INTO email_logs (
+        recipient_email, recipient_name, email_type, subject, body, status
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `).bind(
+      applicantData.email,
+      applicantData.name,
+      'application_received',
+      '[코아시아] 지원서 접수 완료',
+      `안녕하세요 ${applicantData.name}님, 지원서가 정상적으로 접수되었습니다. 서류 전형 결과는 일주일 내 안내드리겠습니다.`,
+      'pending'
+    ).run();
+
+    return c.json({
+      success: true,
+      data: {
+        applicant_id: applicantId,
+        application_id: applicationId,
+        ai_match_score: matchScore.score,
+        ai_match_reason: matchScore.reason,
+        analysis: analysis
+      }
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// 이메일 로그 조회
+app.get('/api/emails', async (c) => {
+  const { DB } = c.env;
+  const status = c.req.query('status');
+  const type = c.req.query('type');
+
+  try {
+    let query = 'SELECT * FROM email_logs WHERE 1=1';
+    const params: any[] = [];
+
+    if (status) {
+      query += ' AND status = ?';
+      params.push(status);
+    }
+
+    if (type) {
+      query += ' AND email_type = ?';
+      params.push(type);
+    }
+
+    query += ' ORDER BY created_at DESC LIMIT 100';
+
+    let stmt = DB.prepare(query);
+    params.forEach(param => {
+      stmt = stmt.bind(param);
+    });
+
+    const result = await stmt.all();
+
+    return c.json({ success: true, data: result.results });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// 이메일 발송 API
+app.post('/api/emails/send', async (c) => {
+  const { DB } = c.env;
+  const data = await c.req.json();
+
+  try {
+    // 실제로는 SMTP 또는 이메일 API 호출
+    // 여기서는 로그만 기록
+    const result = await DB.prepare(`
+      INSERT INTO email_logs (
+        recipient_email, recipient_name, email_type, subject, body, status, sent_at
+      ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `).bind(
+      data.recipient_email,
+      data.recipient_name,
+      data.email_type,
+      data.subject,
+      data.body,
+      'sent'
+    ).run();
+
+    return c.json({ 
+      success: true, 
+      data: { id: result.meta.last_row_id },
+      message: '이메일이 발송되었습니다 (실제 환경에서는 SMTP 연동 필요)'
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// 이메일 상태 업데이트
+app.put('/api/emails/:id/status', async (c) => {
+  const { DB } = c.env;
+  const id = c.req.param('id');
+  const { status } = await c.req.json();
+
+  try {
+    await DB.prepare(`
+      UPDATE email_logs SET status = ?, sent_at = CURRENT_TIMESTAMP WHERE id = ?
+    `).bind(status, id).run();
+
+    return c.json({ success: true, message: 'Email status updated' });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// =====================================================
+// 헬퍼 함수: 이력서 분석
+// =====================================================
+
+function analyzeResume(resumeText: string) {
+  // 실제로는 OpenAI/Claude API로 분석하지만 여기서는 간단한 파싱
+  const analysis: any = {
+    education_level: '학사',
+    university: '',
+    major: '',
+    graduation_date: null,
+    total_experience_years: 0,
+    current_company: '',
+    current_position: '',
+    skills: [],
+    certifications: []
+  };
+
+  // 학력 추출
+  if (resumeText.includes('박사')) {
+    analysis.education_level = '박사';
+  } else if (resumeText.includes('석사')) {
+    analysis.education_level = '석사';
+  }
+
+  // 대학 추출 (간단한 패턴 매칭)
+  const universities = ['서울대', '연세대', '고려대', '카이스트', 'KAIST', 'MIT', 'Stanford'];
+  for (const univ of universities) {
+    if (resumeText.includes(univ)) {
+      analysis.university = univ;
+      break;
+    }
+  }
+
+  // 경력 추출 (숫자 + 년 패턴)
+  const experienceMatch = resumeText.match(/(\d+)년/);
+  if (experienceMatch) {
+    analysis.total_experience_years = parseInt(experienceMatch[1]);
+  }
+
+  // 기술 스택 추출
+  const techKeywords = ['Python', 'Java', 'JavaScript', 'React', 'Node.js', 'AI', 'ML', '딥러닝', '머신러닝'];
+  analysis.skills = techKeywords.filter(tech => resumeText.includes(tech));
+
+  return analysis;
+}
+
+// =====================================================
+// 헬퍼 함수: 매칭 점수 계산
+// =====================================================
+
+function calculateMatchScore(analysis: any, jobPosting: any, resumeText: string, coverLetter: string) {
+  let score = 60; // 기본 점수
+  const reasons: string[] = [];
+
+  // 학력 매칭
+  if (analysis.education_level === '박사') {
+    score += 15;
+    reasons.push('박사 학위 보유');
+  } else if (analysis.education_level === '석사') {
+    score += 10;
+    reasons.push('석사 학위 보유');
+  } else if (analysis.education_level === '학사') {
+    score += 5;
+    reasons.push('학사 학위 보유');
+  }
+
+  // 경력 매칭
+  if (analysis.total_experience_years >= 5) {
+    score += 15;
+    reasons.push(`${analysis.total_experience_years}년 풍부한 경력`);
+  } else if (analysis.total_experience_years >= 3) {
+    score += 10;
+    reasons.push(`${analysis.total_experience_years}년 실무 경력`);
+  } else if (analysis.total_experience_years >= 1) {
+    score += 5;
+    reasons.push(`${analysis.total_experience_years}년 경력`);
+  }
+
+  // 기술 스택 매칭
+  if (analysis.skills && analysis.skills.length > 0) {
+    const skillScore = Math.min(analysis.skills.length * 3, 15);
+    score += skillScore;
+    reasons.push(`핵심 기술 ${analysis.skills.length}개 보유`);
+  }
+
+  // 키워드 매칭 (채용공고 요구사항과 비교)
+  if (jobPosting && jobPosting.requirements) {
+    const requirements = jobPosting.requirements.toLowerCase();
+    const fullText = (resumeText + ' ' + coverLetter).toLowerCase();
+    
+    const jobKeywords = requirements.split(/[,\s]+/).filter((k: string) => k.length > 2);
+    const matchedCount = jobKeywords.filter((k: string) => fullText.includes(k)).length;
+    
+    if (matchedCount > 0) {
+      const keywordScore = Math.min(matchedCount * 2, 10);
+      score += keywordScore;
+      reasons.push(`채용공고 키워드 ${matchedCount}개 매칭`);
+    }
+  }
+
+  // 최대 100점 제한
+  score = Math.min(score, 100);
+
+  return {
+    score,
+    reason: reasons.join(', ')
+  };
+}
+
 // 통계 분석 API
 app.get('/api/analytics/funnel', async (c) => {
   const { DB } = c.env;
@@ -517,7 +841,9 @@ app.get('/', (c) => {
                     </div>
                     <div class="flex items-center space-x-6">
                         <a href="#" onclick="showTab('dashboard')" class="nav-link hover:text-blue-200 transition"><i class="fas fa-chart-line mr-2"></i>대시보드</a>
+                        <a href="#" onclick="showTab('upload')" class="nav-link hover:text-blue-200 transition"><i class="fas fa-file-upload mr-2"></i>이력서 업로드</a>
                         <a href="#" onclick="showTab('applications')" class="nav-link hover:text-blue-200 transition"><i class="fas fa-users mr-2"></i>지원자 관리</a>
+                        <a href="#" onclick="showTab('emails')" class="nav-link hover:text-blue-200 transition"><i class="fas fa-envelope mr-2"></i>이메일 관리</a>
                         <a href="#" onclick="showTab('analytics')" class="nav-link hover:text-blue-200 transition"><i class="fas fa-chart-bar mr-2"></i>통계 분석</a>
                     </div>
                 </div>
@@ -631,6 +957,158 @@ app.get('/', (c) => {
                 </div>
             </div>
 
+            <!-- 이력서 업로드 탭 -->
+            <div id="upload-tab" class="tab-content hidden">
+                <h2 class="text-3xl font-bold text-gray-800 mb-6">
+                    <i class="fas fa-file-upload mr-3 text-purple-600"></i>이력서 직접 업로드
+                </h2>
+
+                <!-- 안내 메시지 -->
+                <div class="bg-blue-50 border-l-4 border-blue-500 p-6 mb-6 rounded-lg">
+                    <div class="flex items-start">
+                        <i class="fas fa-info-circle text-blue-500 text-2xl mr-4 mt-1"></i>
+                        <div>
+                            <h3 class="text-lg font-bold text-blue-800 mb-2">AI 기반 자동 분석 시스템</h3>
+                            <p class="text-blue-700">
+                                업로드된 이력서는 AI가 자동으로 분석하여 <strong>학력, 경력, 기술 스택</strong>을 추출하고,
+                                채용공고와의 <strong>적합도를 100점 만점으로 자동 평가</strong>합니다.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 이력서 업로드 폼 -->
+                <div class="bg-white rounded-lg shadow-md p-8">
+                    <form id="resume-upload-form" class="space-y-6">
+                        <!-- 채용공고 선택 -->
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-2">
+                                <i class="fas fa-briefcase mr-2 text-blue-600"></i>지원 채용공고 <span class="text-red-500">*</span>
+                            </label>
+                            <select id="upload-job-posting" required class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                <option value="">채용공고를 선택하세요</option>
+                            </select>
+                        </div>
+
+                        <!-- 기본 정보 -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-2">
+                                    <i class="fas fa-user mr-2 text-green-600"></i>이름 <span class="text-red-500">*</span>
+                                </label>
+                                <input type="text" id="upload-name" required class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="홍길동">
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-2">
+                                    <i class="fas fa-envelope mr-2 text-red-600"></i>이메일 <span class="text-red-500">*</span>
+                                </label>
+                                <input type="email" id="upload-email" required class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="example@email.com">
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-2">
+                                    <i class="fas fa-phone mr-2 text-yellow-600"></i>연락처 <span class="text-red-500">*</span>
+                                </label>
+                                <input type="tel" id="upload-phone" required class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="010-1234-5678">
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-2">
+                                    <i class="fas fa-calendar mr-2 text-purple-600"></i>생년월일
+                                </label>
+                                <input type="date" id="upload-birth-date" class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-2">
+                                    <i class="fas fa-venus-mars mr-2 text-pink-600"></i>성별
+                                </label>
+                                <select id="upload-gender" class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                    <option value="">선택하세요</option>
+                                    <option value="남">남</option>
+                                    <option value="여">여</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- 이력서 텍스트 -->
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-2">
+                                <i class="fas fa-file-alt mr-2 text-indigo-600"></i>이력서 내용 <span class="text-red-500">*</span>
+                            </label>
+                            <textarea id="upload-resume-text" required rows="8" class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="이력서 내용을 입력하세요. 학력, 경력, 기술 스택 등을 상세히 작성하면 AI 분석 정확도가 높아집니다.
+
+예시:
+- 서울대학교 컴퓨터공학과 학사 졸업 (2018)
+- NAVER AI Lab 선임연구원 (3년 경력)
+- 기술 스택: Python, TensorFlow, PyTorch, 딥러닝, NLP
+- 프로젝트: 대화형 AI 챗봇 개발, 추천 시스템 구축"></textarea>
+                        </div>
+
+                        <!-- 자기소개서 -->
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-2">
+                                <i class="fas fa-pen-fancy mr-2 text-orange-600"></i>자기소개서 (선택)
+                            </label>
+                            <textarea id="upload-cover-letter" rows="6" class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="지원 동기, 포부 등을 자유롭게 작성하세요."></textarea>
+                        </div>
+
+                        <!-- 제출 버튼 -->
+                        <div class="flex items-center justify-end space-x-4">
+                            <button type="button" onclick="document.getElementById('resume-upload-form').reset()" class="px-6 py-3 bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold rounded-lg transition">
+                                <i class="fas fa-undo mr-2"></i>초기화
+                            </button>
+                            <button type="submit" class="px-8 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-lg shadow-lg transition transform hover:scale-105">
+                                <i class="fas fa-paper-plane mr-2"></i>이력서 제출 및 AI 분석 시작
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- AI 분석 결과 (제출 후 표시) -->
+                <div id="upload-result" class="hidden mt-6">
+                    <div class="bg-green-50 border-l-4 border-green-500 p-6 rounded-lg">
+                        <div class="flex items-start">
+                            <i class="fas fa-check-circle text-green-500 text-3xl mr-4"></i>
+                            <div class="flex-1">
+                                <h3 class="text-xl font-bold text-green-800 mb-3">
+                                    <i class="fas fa-robot mr-2"></i>AI 분석 완료!
+                                </h3>
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                                    <div class="bg-white p-4 rounded-lg shadow">
+                                        <p class="text-sm text-gray-600 mb-1">AI 매칭 점수</p>
+                                        <p class="text-3xl font-bold text-blue-600" id="result-score">-</p>
+                                    </div>
+                                    <div class="bg-white p-4 rounded-lg shadow">
+                                        <p class="text-sm text-gray-600 mb-1">추출된 경력</p>
+                                        <p class="text-2xl font-bold text-green-600" id="result-experience">-</p>
+                                    </div>
+                                    <div class="bg-white p-4 rounded-lg shadow">
+                                        <p class="text-sm text-gray-600 mb-1">학력</p>
+                                        <p class="text-2xl font-bold text-purple-600" id="result-education">-</p>
+                                    </div>
+                                </div>
+                                <div class="bg-white p-4 rounded-lg shadow">
+                                    <p class="text-sm font-bold text-gray-700 mb-2">
+                                        <i class="fas fa-lightbulb mr-2 text-yellow-500"></i>매칭 근거
+                                    </p>
+                                    <p class="text-gray-700" id="result-reason">-</p>
+                                </div>
+                                <div class="mt-4 flex space-x-3">
+                                    <button onclick="showTab('applications')" class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition">
+                                        <i class="fas fa-users mr-2"></i>지원자 목록에서 확인
+                                    </button>
+                                    <button onclick="document.getElementById('upload-result').classList.add('hidden'); document.getElementById('resume-upload-form').reset();" class="px-6 py-2 bg-gray-600 hover:bg-gray-700 text-white font-bold rounded-lg transition">
+                                        <i class="fas fa-plus mr-2"></i>새 지원자 추가
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- 지원자 관리 탭 -->
             <div id="applications-tab" class="tab-content hidden">
                 <h2 class="text-3xl font-bold text-gray-800 mb-6">
@@ -704,6 +1182,153 @@ app.get('/', (c) => {
                 </div>
             </div>
 
+            <!-- 이메일 관리 탭 -->
+            <div id="emails-tab" class="tab-content hidden">
+                <h2 class="text-3xl font-bold text-gray-800 mb-6">
+                    <i class="fas fa-envelope mr-3 text-red-600"></i>이메일 접수 및 관리
+                </h2>
+
+                <!-- 통계 카드 -->
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+                    <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-green-500">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-gray-500 text-sm mb-1">발송 완료</p>
+                                <p class="text-3xl font-bold text-green-600" id="email-sent-count">0</p>
+                            </div>
+                            <i class="fas fa-check-circle text-green-500 text-3xl"></i>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-yellow-500">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-gray-500 text-sm mb-1">발송 대기</p>
+                                <p class="text-3xl font-bold text-yellow-600" id="email-pending-count">0</p>
+                            </div>
+                            <i class="fas fa-clock text-yellow-500 text-3xl"></i>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-red-500">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-gray-500 text-sm mb-1">발송 실패</p>
+                                <p class="text-3xl font-bold text-red-600" id="email-failed-count">0</p>
+                            </div>
+                            <i class="fas fa-exclamation-circle text-red-500 text-3xl"></i>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-blue-500">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-gray-500 text-sm mb-1">전체 이메일</p>
+                                <p class="text-3xl font-bold text-blue-600" id="email-total-count">0</p>
+                            </div>
+                            <i class="fas fa-envelope text-blue-500 text-3xl"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 새 이메일 발송 -->
+                <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">
+                        <i class="fas fa-paper-plane mr-2 text-blue-600"></i>새 이메일 발송
+                    </h3>
+                    <form id="email-send-form" class="space-y-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">수신자 이메일</label>
+                                <input type="email" id="email-recipient" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="recipient@example.com">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">수신자 이름</label>
+                                <input type="text" id="email-recipient-name" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="홍길동">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">이메일 유형</label>
+                            <select id="email-type" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                <option value="application_received">지원서 접수 확인</option>
+                                <option value="interview_scheduled">면접 일정 안내</option>
+                                <option value="offer">최종 합격 통보</option>
+                                <option value="rejection">불합격 안내</option>
+                                <option value="custom">사용자 정의</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">제목</label>
+                            <input type="text" id="email-subject" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="[코아시아] 이메일 제목">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">본문</label>
+                            <textarea id="email-body" required rows="6" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="이메일 본문을 입력하세요..."></textarea>
+                        </div>
+                        <div class="flex justify-end">
+                            <button type="submit" class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition">
+                                <i class="fas fa-paper-plane mr-2"></i>발송
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- 필터 -->
+                <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">발송 상태</label>
+                            <select id="email-filter-status" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                <option value="">전체</option>
+                                <option value="sent">발송 완료</option>
+                                <option value="pending">발송 대기</option>
+                                <option value="failed">발송 실패</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">이메일 유형</label>
+                            <select id="email-filter-type" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                <option value="">전체</option>
+                                <option value="application_received">지원서 접수</option>
+                                <option value="interview_scheduled">면접 안내</option>
+                                <option value="offer">합격 통보</option>
+                                <option value="rejection">불합격 안내</option>
+                            </select>
+                        </div>
+                        <div class="flex items-end">
+                            <button onclick="loadEmails()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition">
+                                <i class="fas fa-search mr-2"></i>검색
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 이메일 목록 -->
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">
+                        <i class="fas fa-list mr-2 text-purple-600"></i>이메일 발송 내역
+                    </h3>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">수신자</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">이메일</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">유형</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">제목</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">상태</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">발송일시</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">액션</th>
+                                </tr>
+                            </thead>
+                            <tbody id="emails-list" class="bg-white divide-y divide-gray-200">
+                                <!-- 데이터 로드 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
             <!-- 통계 분석 탭 -->
             <div id="analytics-tab" class="tab-content hidden">
                 <h2 class="text-3xl font-bold text-gray-800 mb-6">
@@ -760,8 +1385,12 @@ app.get('/', (c) => {
                 // 데이터 로드
                 if (tab === 'dashboard') {
                     loadDashboard();
+                } else if (tab === 'upload') {
+                    loadJobPostingsForUpload();
                 } else if (tab === 'applications') {
                     loadApplications();
+                } else if (tab === 'emails') {
+                    loadEmails();
                 } else if (tab === 'analytics') {
                     loadAnalytics();
                 }
@@ -1001,6 +1630,245 @@ app.get('/', (c) => {
             function viewApplication(id) {
                 alert('지원자 상세보기 기능은 개발 중입니다. ID: ' + id);
                 // TODO: 모달 또는 별도 페이지로 상세 정보 표시
+            }
+
+            // =====================================================
+            // 이력서 업로드 관련 함수
+            // =====================================================
+
+            // 채용공고 목록 로드 (업로드 폼용)
+            async function loadJobPostingsForUpload() {
+                try {
+                    const response = await fetch('/api/job-postings?status=open');
+                    const result = await response.json();
+
+                    if (result.success) {
+                        const select = document.getElementById('upload-job-posting');
+                        select.innerHTML = '<option value="">채용공고를 선택하세요</option>';
+                        
+                        result.data.forEach(job => {
+                            const option = document.createElement('option');
+                            option.value = job.id;
+                            option.textContent = \`\${job.title} - \${job.company} (\${job.department})\`;
+                            select.appendChild(option);
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error loading job postings:', error);
+                }
+            }
+
+            // 이력서 업로드 폼 제출
+            document.addEventListener('DOMContentLoaded', () => {
+                const uploadForm = document.getElementById('resume-upload-form');
+                if (uploadForm) {
+                    uploadForm.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+
+                        const formData = new FormData();
+                        formData.append('job_posting_id', document.getElementById('upload-job-posting').value);
+                        formData.append('name', document.getElementById('upload-name').value);
+                        formData.append('email', document.getElementById('upload-email').value);
+                        formData.append('phone', document.getElementById('upload-phone').value);
+                        formData.append('birth_date', document.getElementById('upload-birth-date').value);
+                        formData.append('gender', document.getElementById('upload-gender').value);
+                        formData.append('resume_text', document.getElementById('upload-resume-text').value);
+                        formData.append('cover_letter', document.getElementById('upload-cover-letter').value);
+
+                        try {
+                            const response = await fetch('/api/applicants/upload-resume', {
+                                method: 'POST',
+                                body: formData
+                            });
+
+                            const result = await response.json();
+
+                            if (result.success) {
+                                // 분석 결과 표시
+                                document.getElementById('result-score').textContent = Math.round(result.data.ai_match_score) + '점';
+                                document.getElementById('result-experience').textContent = result.data.analysis.total_experience_years + '년';
+                                document.getElementById('result-education').textContent = result.data.analysis.education_level;
+                                document.getElementById('result-reason').textContent = result.data.ai_match_reason;
+
+                                // 결과 창 표시
+                                document.getElementById('upload-result').classList.remove('hidden');
+                                
+                                // 폼 스크롤
+                                document.getElementById('upload-result').scrollIntoView({ behavior: 'smooth' });
+                            } else {
+                                alert('오류: ' + result.error);
+                            }
+                        } catch (error) {
+                            console.error('Error uploading resume:', error);
+                            alert('이력서 업로드 중 오류가 발생했습니다.');
+                        }
+                    });
+                }
+            });
+
+            // =====================================================
+            // 이메일 관리 관련 함수
+            // =====================================================
+
+            // 이메일 목록 로드
+            async function loadEmails() {
+                try {
+                    const status = document.getElementById('email-filter-status').value;
+                    const type = document.getElementById('email-filter-type').value;
+
+                    let url = '/api/emails?';
+                    if (status) url += 'status=' + status + '&';
+                    if (type) url += 'type=' + type;
+
+                    const response = await fetch(url);
+                    const result = await response.json();
+
+                    if (result.success) {
+                        // 통계 업데이트
+                        const sentCount = result.data.filter(e => e.status === 'sent').length;
+                        const pendingCount = result.data.filter(e => e.status === 'pending').length;
+                        const failedCount = result.data.filter(e => e.status === 'failed').length;
+
+                        document.getElementById('email-sent-count').textContent = sentCount;
+                        document.getElementById('email-pending-count').textContent = pendingCount;
+                        document.getElementById('email-failed-count').textContent = failedCount;
+                        document.getElementById('email-total-count').textContent = result.data.length;
+
+                        // 이메일 목록 표시
+                        const list = document.getElementById('emails-list');
+                        list.innerHTML = '';
+
+                        const emailTypeMap = {
+                            'application_received': '지원서 접수',
+                            'interview_scheduled': '면접 안내',
+                            'offer': '합격 통보',
+                            'rejection': '불합격 안내'
+                        };
+
+                        result.data.forEach(email => {
+                            const statusColor = email.status === 'sent' ? 'green' : email.status === 'pending' ? 'yellow' : 'red';
+                            const statusText = email.status === 'sent' ? '발송완료' : email.status === 'pending' ? '대기중' : '실패';
+
+                            list.innerHTML += \`
+                                <tr>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <div class="font-medium text-gray-900">\${email.recipient_name}</div>
+                                    </td>
+                                    <td class="px-6 py-4 text-sm text-gray-500">\${email.recipient_email}</td>
+                                    <td class="px-6 py-4 text-sm text-gray-500">\${emailTypeMap[email.email_type] || email.email_type}</td>
+                                    <td class="px-6 py-4 text-sm text-gray-700 max-w-xs truncate">\${email.subject}</td>
+                                    <td class="px-6 py-4">
+                                        <span class="px-3 py-1 text-xs font-semibold rounded-full bg-\${statusColor}-100 text-\${statusColor}-800">
+                                            \${statusText}
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 text-sm text-gray-500">\${email.sent_at ? new Date(email.sent_at).toLocaleString('ko-KR') : '-'}</td>
+                                    <td class="px-6 py-4">
+                                        \${email.status === 'pending' ? \`
+                                            <button onclick="resendEmail(\${email.id})" class="text-blue-600 hover:text-blue-800">
+                                                <i class="fas fa-redo"></i> 재발송
+                                            </button>
+                                        \` : ''}
+                                    </td>
+                                </tr>
+                            \`;
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error loading emails:', error);
+                }
+            }
+
+            // 이메일 발송 폼 제출
+            document.addEventListener('DOMContentLoaded', () => {
+                const emailForm = document.getElementById('email-send-form');
+                if (emailForm) {
+                    emailForm.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+
+                        const data = {
+                            recipient_email: document.getElementById('email-recipient').value,
+                            recipient_name: document.getElementById('email-recipient-name').value,
+                            email_type: document.getElementById('email-type').value,
+                            subject: document.getElementById('email-subject').value,
+                            body: document.getElementById('email-body').value
+                        };
+
+                        try {
+                            const response = await fetch('/api/emails/send', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(data)
+                            });
+
+                            const result = await response.json();
+
+                            if (result.success) {
+                                alert('이메일이 발송되었습니다!\\n\\n' + result.message);
+                                emailForm.reset();
+                                loadEmails();
+                            } else {
+                                alert('오류: ' + result.error);
+                            }
+                        } catch (error) {
+                            console.error('Error sending email:', error);
+                            alert('이메일 발송 중 오류가 발생했습니다.');
+                        }
+                    });
+                }
+
+                // 이메일 유형 선택 시 템플릿 자동 입력
+                const emailTypeSelect = document.getElementById('email-type');
+                if (emailTypeSelect) {
+                    emailTypeSelect.addEventListener('change', (e) => {
+                        const templates = {
+                            'application_received': {
+                                subject: '[코아시아] 지원서 접수 완료',
+                                body: '안녕하세요 [이름]님,\\n\\n지원서가 정상적으로 접수되었습니다.\\n서류 전형 결과는 일주일 내 안내드리겠습니다.\\n\\n감사합니다.\\n코아시아 인사팀'
+                            },
+                            'interview_scheduled': {
+                                subject: '[코아시아] 면접 일정 안내',
+                                body: '안녕하세요 [이름]님,\\n\\n서류 전형 합격을 축하드립니다!\\n\\n면접 일정: [날짜] [시간]\\n면접 장소: [장소]\\n\\n준비물: 신분증, 이력서 1부\\n\\n감사합니다.\\n코아시아 인사팀'
+                            },
+                            'offer': {
+                                subject: '[코아시아] 최종 합격 통보',
+                                body: '안녕하세요 [이름]님,\\n\\n최종 합격을 축하드립니다!\\n\\n채용 조건은 별도로 안내드릴 예정이며,\\n입사 의사를 2주 내 회신 부탁드립니다.\\n\\n감사합니다.\\n코아시아 인사팀'
+                            },
+                            'rejection': {
+                                subject: '[코아시아] 전형 결과 안내',
+                                body: '안녕하세요 [이름]님,\\n\\n아쉽게도 이번 전형에서는 귀하를 선발하지 못했습니다.\\n향후 다른 기회에 다시 뵙기를 바랍니다.\\n\\n감사합니다.\\n코아시아 인사팀'
+                            }
+                        };
+
+                        const template = templates[e.target.value];
+                        if (template) {
+                            document.getElementById('email-subject').value = template.subject;
+                            document.getElementById('email-body').value = template.body;
+                        }
+                    });
+                }
+            });
+
+            // 이메일 재발송
+            async function resendEmail(id) {
+                try {
+                    const response = await fetch(\`/api/emails/\${id}/status\`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ status: 'sent' })
+                    });
+
+                    const result = await response.json();
+
+                    if (result.success) {
+                        alert('이메일이 재발송되었습니다.');
+                        loadEmails();
+                    } else {
+                        alert('오류: ' + result.error);
+                    }
+                } catch (error) {
+                    console.error('Error resending email:', error);
+                }
             }
 
             // 페이지 로드 시 대시보드 표시
