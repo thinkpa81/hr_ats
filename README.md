@@ -30,6 +30,7 @@
 ### 프로덕션 환경
 - **Status**: ⏳ 대기중 (Cloudflare Pages 배포 예정)
 - **예상 URL**: https://coasia-ats.pages.dev
+- **GitHub**: https://github.com/thinkpa81/ats
 
 ## 🗄️ 데이터 아키텍처
 
@@ -363,8 +364,9 @@ npm run git:log
 
 ## 📞 문의 및 지원
 
-- **GitHub**: (저장소 연동 후 추가 예정)
+- **GitHub**: https://github.com/thinkpa81/ats
 - **개발 환경**: https://3000-idpranz105pft1i09ko0z-5185f4aa.sandbox.novita.ai
+- **백업 파일**: https://www.genspark.ai/api/files/s/mWd9U5U3
 
 ---
 
