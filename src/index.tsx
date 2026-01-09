@@ -524,7 +524,7 @@ app.post('/api/applicants/upload-resume', async (c) => {
       applicantData.email,
       applicantData.name,
       'application_received',
-      '[코아시아] 지원서 접수 완료',
+      '[ATS] 지원서 접수 완료',
       `안녕하세요 ${applicantData.name}님, 지원서가 정상적으로 접수되었습니다. 서류 전형 결과는 일주일 내 안내드리겠습니다.`,
       'pending'
     ).run();
@@ -825,7 +825,7 @@ app.get('/', (c) => {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>코아시아 ATS - 지능형 채용관리 시스템</title>
+        <title>ATS - 지능형 채용관리 시스템</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
         <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -837,7 +837,7 @@ app.get('/', (c) => {
                 <div class="flex justify-between h-16">
                     <div class="flex items-center">
                         <i class="fas fa-briefcase text-2xl mr-3"></i>
-                        <span class="text-xl font-bold">코아시아 ATS</span>
+                        <span class="text-xl font-bold">ATS</span>
                     </div>
                     <div class="flex items-center space-x-6">
                         <a href="#" onclick="showTab('dashboard')" class="nav-link hover:text-blue-200 transition"><i class="fas fa-chart-line mr-2"></i>대시보드</a>
@@ -1259,7 +1259,7 @@ app.get('/', (c) => {
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">제목</label>
-                            <input type="text" id="email-subject" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="[코아시아] 이메일 제목">
+                            <input type="text" id="email-subject" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="[ATS] 이메일 제목">
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">본문</label>
@@ -1823,20 +1823,20 @@ app.get('/', (c) => {
                     emailTypeSelect.addEventListener('change', (e) => {
                         const templates = {
                             'application_received': {
-                                subject: '[코아시아] 지원서 접수 완료',
-                                body: '안녕하세요 [이름]님,\\n\\n지원서가 정상적으로 접수되었습니다.\\n서류 전형 결과는 일주일 내 안내드리겠습니다.\\n\\n감사합니다.\\n코아시아 인사팀'
+                                subject: '[ATS] 지원서 접수 완료',
+                                body: '안녕하세요 [이름]님,\\n\\n지원서가 정상적으로 접수되었습니다.\\n서류 전형 결과는 일주일 내 안내드리겠습니다.\\n\\n감사합니다.\\n인사팀'
                             },
                             'interview_scheduled': {
-                                subject: '[코아시아] 면접 일정 안내',
-                                body: '안녕하세요 [이름]님,\\n\\n서류 전형 합격을 축하드립니다!\\n\\n면접 일정: [날짜] [시간]\\n면접 장소: [장소]\\n\\n준비물: 신분증, 이력서 1부\\n\\n감사합니다.\\n코아시아 인사팀'
+                                subject: '[ATS] 면접 일정 안내',
+                                body: '안녕하세요 [이름]님,\\n\\n서류 전형 합격을 축하드립니다!\\n\\n면접 일정: [날짜] [시간]\\n면접 장소: [장소]\\n\\n준비물: 신분증, 이력서 1부\\n\\n감사합니다.\\n인사팀'
                             },
                             'offer': {
-                                subject: '[코아시아] 최종 합격 통보',
-                                body: '안녕하세요 [이름]님,\\n\\n최종 합격을 축하드립니다!\\n\\n채용 조건은 별도로 안내드릴 예정이며,\\n입사 의사를 2주 내 회신 부탁드립니다.\\n\\n감사합니다.\\n코아시아 인사팀'
+                                subject: '[ATS] 최종 합격 통보',
+                                body: '안녕하세요 [이름]님,\\n\\n최종 합격을 축하드립니다!\\n\\n채용 조건은 별도로 안내드릴 예정이며,\\n입사 의사를 2주 내 회신 부탁드립니다.\\n\\n감사합니다.\\n인사팀'
                             },
                             'rejection': {
-                                subject: '[코아시아] 전형 결과 안내',
-                                body: '안녕하세요 [이름]님,\\n\\n아쉽게도 이번 전형에서는 귀하를 선발하지 못했습니다.\\n향후 다른 기회에 다시 뵙기를 바랍니다.\\n\\n감사합니다.\\n코아시아 인사팀'
+                                subject: '[ATS] 전형 결과 안내',
+                                body: '안녕하세요 [이름]님,\\n\\n아쉽게도 이번 전형에서는 귀하를 선발하지 못했습니다.\\n향후 다른 기회에 다시 뵙기를 바랍니다.\\n\\n감사합니다.\\n인사팀'
                             }
                         };
 
