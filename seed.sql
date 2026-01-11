@@ -1,11 +1,11 @@
 -- =====================================================
 -- ATS 시스템 초기 데이터 (Seed Data)
--- 코아시아 지주사 표준 채용 프로세스 테스트 데이터
+-- JSH 지주사 표준 채용 프로세스 테스트 데이터
 -- =====================================================
 
 -- 1. 채용공고 샘플 데이터
 INSERT INTO job_postings (title, company, department, position_level, employment_type, location, job_description, requirements, preferred_qualifications, salary_range, benefits, status, deadline, openings, created_by) VALUES
-('AI 연구원 (머신러닝/딥러닝)', '코아시아 지주사', 'AI연구소', '경력', '정규직', '서울 강남구', 
+('AI 연구원 (머신러닝/딥러닝)', 'JSH 지주사', 'AI연구소', '경력', '정규직', '서울 강남구', 
 'AI/ML 모델 개발 및 최적화, 딥러닝 알고리즘 연구, 데이터 분석 및 전처리',
 'AI/ML 관련 석사 이상, Python/TensorFlow/PyTorch 능숙, 3년 이상 실무 경험',
 '국제 학술지 논문 게재, Kaggle 수상 경력, NLP/Computer Vision 프로젝트 경험',
@@ -13,7 +13,7 @@ INSERT INTO job_postings (title, company, department, position_level, employment
 '4대보험, 연차 15일, 자기계발비 지원, 재택근무 주 2회',
 'open', '2026-02-28', 2, 'hr-manager@coasia.com'),
 
-('인사기획 담당자 (HR Planning)', '코아시아 지주사', '경영지원본부 인사팀', '신입/경력', '정규직', '서울 서초구',
+('인사기획 담당자 (HR Planning)', 'JSH 지주사', '경영지원본부 인사팀', '신입/경력', '정규직', '서울 서초구',
 '채용 전략 수립 및 실행, HR 프로세스 개선, 인사 데이터 분석 및 리포팅, 조직문화 프로그램 기획',
 '인사/경영 관련 학사 이상, HR 실무 경험 우대, Excel/PowerPoint 능숙',
 'HRBP 자격증, 노무사 자격증, 채용 프로젝트 리딩 경험',
@@ -21,7 +21,7 @@ INSERT INTO job_postings (title, company, department, position_level, employment
 '4대보험, 연차 15일, 교육비 지원, 경조사 지원',
 'open', '2026-02-15', 1, 'hr-manager@coasia.com'),
 
-('풀스택 개발자 (Full-Stack Developer)', '코아시아테크놀로지', '개발본부', '경력', '정규직', '판교 테크노밸리',
+('풀스택 개발자 (Full-Stack Developer)', 'JSH테크놀로지', '개발본부', '경력', '정규직', '판교 테크노밸리',
 '웹/모바일 서비스 개발, 프론트엔드(React/Vue) 및 백엔드(Node.js/Python) 개발, API 설계 및 구현, 데이터베이스 설계',
 '컴퓨터공학 학사 이상, 3년 이상 풀스택 개발 경험, JavaScript/TypeScript 능숙, RDBMS 경험',
 '클라우드(AWS/GCP/Azure) 운영 경험, Docker/Kubernetes 경험, 대용량 트래픽 처리 경험',
@@ -29,7 +29,7 @@ INSERT INTO job_postings (title, company, department, position_level, employment
 '4대보험, 연차 15일, 스톡옵션, 자율 출퇴근제',
 'open', '2026-03-31', 3, 'hr@coasia-tech.com'),
 
-('재무 분석가 (Financial Analyst)', '코아시아인베스트먼트', '재무전략팀', '경력', '정규직', '서울 여의도',
+('재무 분석가 (Financial Analyst)', 'JSH인베스트먼트', '재무전략팀', '경력', '정규직', '서울 여의도',
 '재무제표 분석, 투자 의사결정 지원, 재무 모델링, 실적 예측 및 리포팅',
 '경영/경제/회계 학사 이상, 3년 이상 재무 분석 경험, Excel 고급 활용, 재무회계 지식',
 'CFA/CPA 자격증, 증권사/IB 경력, 영어 능통',
@@ -37,7 +37,7 @@ INSERT INTO job_postings (title, company, department, position_level, employment
 '4대보험, 연차 15일, 성과급, 사내식당',
 'open', '2026-02-20', 2, 'hr@coasia-inv.com'),
 
-('제조기술 엔지니어 (Manufacturing Engineer)', '코아시아제조', '생산기술부', '경력', '정규직', '경기 화성',
+('제조기술 엔지니어 (Manufacturing Engineer)', 'JSH제조', '생산기술부', '경력', '정규직', '경기 화성',
 '생산라인 설계 및 개선, 공정 최적화, 품질 관리, 불량률 감소 프로젝트 수행',
 '기계공학/산업공학 학사 이상, 3년 이상 제조 현장 경험, CAD/CAM 능숙',
 '6시그마 자격증, 스마트팩토리 구축 경험, PLC 프로그래밍',
@@ -58,22 +58,22 @@ INSERT INTO applicants (name, email, phone, birth_date, gender, education_level,
 
 -- 3. 지원내역 샘플 데이터 (지원자와 채용공고 매칭)
 INSERT INTO applications (job_posting_id, applicant_id, status, current_stage, cover_letter, ai_match_score, ai_match_reason, screening_score) VALUES
-(1, 1, 'interview', '2차면접', 'AI 연구 열정과 실무 경험을 바탕으로 코아시아 AI연구소에 기여하고 싶습니다.', 95.5, 'AI/ML 석사학위, NAVER AI Lab 4년 경력, 논문 3편 게재, 기술스택 완벽 매칭', 92.0),
+(1, 1, 'interview', '2차면접', 'AI 연구 열정과 실무 경험을 바탕으로 JSH AI연구소에 기여하고 싶습니다.', 95.5, 'AI/ML 석사학위, NAVER AI Lab 4년 경력, 논문 3편 게재, 기술스택 완벽 매칭', 92.0),
 (1, 7, 'interview', '1차면접', 'MIT 박사 학위와 Google AI 경험을 통해 세계 수준의 AI 연구를 수행하겠습니다.', 98.2, 'MIT 박사, Google AI 5년 경력, 국제학술지 10편 이상, 딥러닝 전문가', 95.0),
 (2, 2, 'screening', '서류전형', '3년간 HR 실무 경험을 바탕으로 채용 프로세스 혁신에 기여하고 싶습니다.', 88.3, 'HR 실무 3년, 경영학 전공, 채용 프로젝트 다수 수행', 85.0),
 (2, 6, 'rejected', '서류전형', '인사 업무에 관심이 많아 지원하게 되었습니다.', 65.5, '경력 2년으로 다소 부족, 인턴 경험 위주', 70.0),
-(3, 3, 'offer', '최종합격', '7년간 풀스택 개발 경험으로 코아시아테크놀로지 성장에 기여하겠습니다.', 94.7, '카카오 시니어 개발자 7년, 풀스택 전문, 대용량 트래픽 경험 풍부', 93.0),
+(3, 3, 'offer', '최종합격', '7년간 풀스택 개발 경험으로 JSH테크놀로지 성장에 기여하겠습니다.', 94.7, '카카오 시니어 개발자 7년, 풀스택 전문, 대용량 트래픽 경험 풍부', 93.0),
 (4, 4, 'interview', '1차면접', '삼성증권 애널리스트로서 재무 분석 전문성을 발휘하겠습니다.', 91.2, '증권사 애널리스트 3년, 고려대 경제학 석사, 재무모델링 전문', 88.0),
 (5, 5, 'screening', '서류전형', '현대자동차 5년 경력으로 제조 혁신을 이끌겠습니다.', 87.5, '제조기술 5년 경력, 기계공학 전공, 현장 경험 풍부', 82.0),
 (5, 8, 'submitted', '서류전형', '산업공학 전공과 포스코 경험으로 생산성 향상에 기여하겠습니다.', 80.3, '산업공학 전공, 생산관리 3년, 공정 최적화 경험', 0);
 
 -- 4. 면접일정 샘플 데이터
 INSERT INTO interviews (application_id, interview_type, interview_round, interview_date, interview_location, interview_method, interviewers, duration_minutes, status) VALUES
-(1, '1차 기술면접', 1, '2026-01-15 14:00:00', '코아시아 본사 7층 회의실', '대면', '["김철수 연구소장", "이영희 팀장"]', 60, 'completed'),
-(1, '2차 임원면접', 2, '2026-01-22 10:00:00', '코아시아 본사 임원회의실', '대면', '["박영수 CTO", "최민정 부사장"]', 90, 'scheduled'),
+(1, '1차 기술면접', 1, '2026-01-15 14:00:00', 'JSH 본사 7층 회의실', '대면', '["김철수 연구소장", "이영희 팀장"]', 60, 'completed'),
+(1, '2차 임원면접', 2, '2026-01-22 10:00:00', 'JSH 본사 임원회의실', '대면', '["박영수 CTO", "최민정 부사장"]', 90, 'scheduled'),
 (2, '1차 실무면접', 1, '2026-01-18 15:00:00', '온라인 (Zoom)', '화상', '["윤도현 AI Lab 연구원", "한소희 선임연구원"]', 60, 'scheduled'),
-(4, '1차 실무면접', 1, '2026-01-20 11:00:00', '코아시아 본사 3층 회의실', '대면', '["장순호 인사기획부장", "김민지 팀장"]', 60, 'scheduled'),
-(6, '1차 기술면접', 1, '2026-01-16 16:00:00', '코아시아인베스트먼트 본사', '대면', '["정재무 팀장", "오회계 과장"]', 60, 'completed');
+(4, '1차 실무면접', 1, '2026-01-20 11:00:00', 'JSH 본사 3층 회의실', '대면', '["장순호 인사기획부장", "김민지 팀장"]', 60, 'scheduled'),
+(6, '1차 기술면접', 1, '2026-01-16 16:00:00', 'JSH인베스트먼트 본사', '대면', '["정재무 팀장", "오회계 과장"]', 60, 'completed');
 
 -- 5. 면접평가 샘플 데이터
 INSERT INTO interview_evaluations (interview_id, interviewer_name, interviewer_position, technical_score, communication_score, culture_fit_score, problem_solving_score, leadership_score, total_score, strengths, weaknesses, recommendation, detailed_feedback) VALUES
@@ -130,10 +130,10 @@ INSERT INTO process_logs (application_id, stage, action, performer, notes) VALUE
 
 -- 8. 이메일 로그 샘플
 INSERT INTO email_logs (recipient_email, recipient_name, email_type, subject, body, status, sent_at) VALUES
-('minjun.kim@email.com', '김민준', 'application_received', '[코아시아] 지원서 접수 완료', '안녕하세요 김민준님, AI 연구원 직무에 지원해 주셔서 감사합니다. 서류 전형 결과는 일주일 내 안내드리겠습니다.', 'sent', '2026-01-08 10:30:00'),
-('minjun.kim@email.com', '김민준', 'interview_scheduled', '[코아시아] 1차 면접 일정 안내', '서류 전형 합격을 축하드립니다. 1차 면접은 2026-01-15 14:00에 본사 7층 회의실에서 진행됩니다.', 'sent', '2026-01-10 15:20:00'),
-('jihoon.park@email.com', '박지훈', 'offer', '[코아시아테크놀로지] 채용 제안', '최종 합격을 축하드립니다! 연봉 8,500만원으로 채용 제안을 드립니다. 입사 의사를 2주 내 회신 부탁드립니다.', 'sent', '2026-01-05 11:00:00'),
-('yejin.kang@email.com', '강예진', 'rejection', '[코아시아] 전형 결과 안내', '안녕하세요 강예진님, 서류 전형 결과를 안내드립니다. 아쉽게도 이번 전형에서는 귀하를 선발하지 못했습니다. 향후 다른 기회에 다시 뵙기를 바랍니다.', 'sent', '2026-01-07 16:45:00');
+('minjun.kim@email.com', '김민준', 'application_received', '[JSH] 지원서 접수 완료', '안녕하세요 김민준님, AI 연구원 직무에 지원해 주셔서 감사합니다. 서류 전형 결과는 일주일 내 안내드리겠습니다.', 'sent', '2026-01-08 10:30:00'),
+('minjun.kim@email.com', '김민준', 'interview_scheduled', '[JSH] 1차 면접 일정 안내', '서류 전형 합격을 축하드립니다. 1차 면접은 2026-01-15 14:00에 본사 7층 회의실에서 진행됩니다.', 'sent', '2026-01-10 15:20:00'),
+('jihoon.park@email.com', '박지훈', 'offer', '[JSH테크놀로지] 채용 제안', '최종 합격을 축하드립니다! 연봉 8,500만원으로 채용 제안을 드립니다. 입사 의사를 2주 내 회신 부탁드립니다.', 'sent', '2026-01-05 11:00:00'),
+('yejin.kang@email.com', '강예진', 'rejection', '[JSH] 전형 결과 안내', '안녕하세요 강예진님, 서류 전형 결과를 안내드립니다. 아쉽게도 이번 전형에서는 귀하를 선발하지 못했습니다. 향후 다른 기회에 다시 뵙기를 바랍니다.', 'sent', '2026-01-07 16:45:00');
 
 -- 9. 통계 스냅샷 초기 데이터
 INSERT INTO statistics_snapshot (snapshot_date, total_job_postings, active_job_postings, total_applicants, total_applications, applications_by_status, average_time_to_hire, application_conversion_rate) VALUES
